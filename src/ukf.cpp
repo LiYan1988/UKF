@@ -112,11 +112,14 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
     is_initialized_ = true;
     return;
   }
-
   float dt = (meas_package.timestamp_ - time_us_) / 1000000.0;
   time_us_ = meas_package.timestamp_;
 
-  Prediction(dt);
+  if (meas_package.sensor_type_==MeasurementPackage::LASER) {
+    Prediction(dt);
+    UpdateLidar(meas_package);
+  }
+
 }
 
 /**
@@ -133,8 +136,10 @@ void UKF::Prediction(double delta_t) {
   */
 
   // construct matrices
-  VectorXd x_aug = VectorXd::Zero(n_aug_);
+  VectorXd x_aug = VectorXd(n_aug_);
   x_aug.head(n_x_) = x_;
+  x_aug(n_x_) = 0;
+  x_aug(n_x_ + 1) = 0;
 
   MatrixXd Xsig_aug = MatrixXd(n_aug_, 2 * n_aug_ + 1);
   Xsig_aug.col(0) = x_aug;
@@ -146,11 +151,10 @@ void UKF::Prediction(double delta_t) {
 
   MatrixXd L = P_aug.llt().matrixL();
 
-
   // augmented sigma points before prediction
   for(int i=0; i<n_aug_; i++){
     Xsig_aug.col(i+1)         = x_aug + sqrt(lambda_ + n_aug_) * L.col(i);
-    Xsig_aug.col(i+i+n_aug_)  = x_aug - sqrt(lambda_ + n_aug_) * L.col(i);
+    Xsig_aug.col(i+1+n_aug_)  = x_aug - sqrt(lambda_ + n_aug_) * L.col(i);
   }
 
   // prediction
@@ -181,6 +185,9 @@ void UKF::Prediction(double delta_t) {
     Xsig_pred_.col(i) << px + dpx, py + dpy, v + dv, yaw + dyaw, yawd + dyawd;
   }
 
+  cout<<"dt = " << delta_t<<endl;
+  cout<<"Xsig_pred_ = " <<Xsig_pred_<<endl;
+
   // calculate mean and covariance
   x_ = VectorXd::Zero(n_x_);
   for (int i=0; i<2 * n_aug_ + 1; i++) x_ += weights_(i) * Xsig_pred_.col(i);
@@ -190,8 +197,6 @@ void UKF::Prediction(double delta_t) {
     VectorXd v = Xsig_pred_.col(i) - x_;
     P_ += weights_(i) * v * v.transpose();
   }
-  cout<<"x = "<<x_<<endl;
-  cout<<"P = "<<P_<<endl;
 }
 
 /**
@@ -207,6 +212,44 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
 
   You'll also need to calculate the lidar NIS.
   */
+  // measured position
+  double px = meas_package.raw_measurements_[0];
+  double py = meas_package.raw_measurements_[1];
+  VectorXd z = VectorXd(2);
+  z << px, py;
+
+  // predicted measurement mean
+  VectorXd z_pred_meas_mean = VectorXd::Zero(2);
+  MatrixXd z_pred = MatrixXd::Zero(2, 2 * n_aug_ + 1);
+  for (int i=0; i<2 * n_aug_ + 1; i++) {
+    z_pred.col(i) << Xsig_pred_(0, i), Xsig_pred_(1, i);
+    z_pred_meas_mean += weights_(i) * z_pred.col(i);
+  }
+
+  MatrixXd S = MatrixXd::Zero(2, 2);
+  S << std_laspx_ * std_laspx_, 0,
+       0, std_laspy_ * std_laspy_;
+  for (int i=0; i<2 * n_aug_ + 1; i++) {
+    S += weights_(i) * (z_pred.col(i) - z_pred_meas_mean) * (z_pred.col(i) - z_pred_meas_mean).transpose();
+  }
+
+  MatrixXd T = MatrixXd::Zero(n_x_, 2);
+  for (int i=0; i<2 * n_aug_ + 1; i++) {
+    T += weights_(i) * (Xsig_pred_.col(i) - x_) * (z_pred.col(i) - z_pred_meas_mean).transpose();
+  }
+
+  MatrixXd K = T * S.inverse();
+  x_ += K * (z - z_pred_meas_mean);
+  P_ -= K * S * K.transpose();
+
+  cout<<"K = \n" <<K<<endl;
+  cout<<"T = \n" <<T<<endl;
+  cout<<"S = \n" <<S<<endl;
+  cout<<"z = \n" <<z<<endl;
+  cout<<"z_pred = \n"<<z_pred<<endl;
+  cout<<"z_pred_meas_mean = \n" <<z_pred_meas_mean<<endl;
+  cout<<"x = \n" <<x_<<endl;
+  cout<<"P = \n" <<P_<<endl;
 }
 
 /**
