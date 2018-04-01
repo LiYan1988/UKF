@@ -25,11 +25,11 @@ UKF::UKF() {
   P_ = MatrixXd(5, 5);
 
   // Process noise standard deviation longitudinal acceleration in m/s^2
-  std_a_ = 30;
+  std_a_ = 1;
 
   // Process noise standard deviation yaw acceleration in rad/s^2
-  std_yawdd_ = 30;
-  
+  std_yawdd_ = 1;
+
   //DO NOT MODIFY measurement noise values below these are provided by the sensor manufacturer.
   // Laser measurement noise standard deviation position1 in m
   std_laspx_ = 0.15;
@@ -46,7 +46,7 @@ UKF::UKF() {
   // Radar measurement noise standard deviation radius change in m/s
   std_radrd_ = 0.3;
   //DO NOT MODIFY measurement noise values above these are provided by the sensor manufacturer.
-  
+
   /**
   TODO:
 
@@ -54,6 +54,28 @@ UKF::UKF() {
 
   Hint: one or more values initialized above might be wildly off...
   */
+
+  is_initialized_ = false;
+
+  x_ << 0, 0, 0, 0, 0;
+
+  P_ << 1, 0, 0, 0, 0,
+        0, 1, 0, 0, 0,
+        0, 0, 1, 0, 0,
+        0, 0, 0, 1, 0,
+        0, 0, 0, 0, 1;
+
+  n_x_ = 5;
+
+  n_aug_ = 7;
+
+  time_us_ = 0;
+
+  weights_ = VectorXd(2 * n_aug_ + 1);
+
+  double lambda_ = 3 - n_aug_;
+
+  Xsig_pred_ = MatrixXd::Zero(n_x_, 2 * n_aug_ + 1);
 }
 
 UKF::~UKF() {}
@@ -69,6 +91,32 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
   Complete this function! Make sure you switch between lidar and radar
   measurements.
   */
+
+  if(!is_initialized_){
+    cout<<"Initialize UKF."<<endl;
+    if (meas_package.sensor_type_==MeasurementPackage::LASER) {
+      // laser initialization
+      float px = meas_package.raw_measurements_[0];
+      float py = meas_package.raw_measurements_[1];
+      x_(0) = px;
+      x_(1) = py;
+    }
+    else if (meas_package.sensor_type_==MeasurementPackage::RADAR) {
+       // radar initialization
+       float rho = meas_package.raw_measurements_[0];
+       float phi = meas_package.raw_measurements_[1];
+       x_(0) = rho * cos(phi);
+       x_(1) = rho * sin(phi);
+    }
+    time_us_ = meas_package.timestamp_;
+    is_initialized_ = true;
+    return;
+  }
+
+  float dt = (meas_package.timestamp_ - time_us_) / 1000000.0;
+  time_us_ = meas_package.timestamp_;
+
+  Prediction(dt);
 }
 
 /**
@@ -83,6 +131,67 @@ void UKF::Prediction(double delta_t) {
   Complete this function! Estimate the object's location. Modify the state
   vector, x_. Predict sigma points, the state, and the state covariance matrix.
   */
+
+  // construct matrices
+  VectorXd x_aug = VectorXd::Zero(n_aug_);
+  x_aug.head(n_x_) = x_;
+
+  MatrixXd Xsig_aug = MatrixXd(n_aug_, 2 * n_aug_ + 1);
+  Xsig_aug.col(0) = x_aug;
+
+  MatrixXd P_aug = MatrixXd::Zero(n_aug_, n_aug_);
+  P_aug.topLeftCorner(n_x_, n_x_) = P_;
+  P_aug(n_x_, n_x_) = std_a_ * std_a_;
+  P_aug(n_x_ + 1, n_x_ + 1) = std_yawdd_ * std_yawdd_;
+
+  MatrixXd L = P_aug.llt().matrixL();
+
+
+  // augmented sigma points before prediction
+  for(int i=0; i<n_aug_; i++){
+    Xsig_aug.col(i+1)         = x_aug + sqrt(lambda_ + n_aug_) * L.col(i);
+    Xsig_aug.col(i+i+n_aug_)  = x_aug - sqrt(lambda_ + n_aug_) * L.col(i);
+  }
+
+  // prediction
+  for (int i=0; i<2*n_aug_+1; i++) {
+    // extract values
+    double px     = Xsig_aug(0, i);
+    double py     = Xsig_aug(1, i);
+    double v      = Xsig_aug(2, i);
+    double yaw    = Xsig_aug(3, i);
+    double yawd   = Xsig_aug(4, i);
+    double vd     = Xsig_aug(5, i);
+    double yawdd  = Xsig_aug(6, i);
+
+    double dpx    = delta_t * delta_t * cos(yaw) * vd / 2;
+    double dpy    = delta_t * delta_t * sin(yaw) * vd / 2;
+    double dv     = delta_t * vd;
+    double dyaw   = delta_t * delta_t * yawdd / 2 + yawd * delta_t;
+    double dyawd  = delta_t * yawdd;
+
+    if (yawd==0) {
+      dpx += v * cos(yaw) * delta_t;
+      dpy += v * sin(yaw) * delta_t;
+    }
+    else {
+      dpx += (sin(yaw + yawd * delta_t) - sin(yaw)) * v / yawd;
+      dpy += (-cos(yaw + yawd * delta_t) + cos(yaw)) * v / yawd;
+    }
+    Xsig_pred_.col(i) << px + dpx, py + dpy, v + dv, yaw + dyaw, yawd + dyawd;
+  }
+
+  // calculate mean and covariance
+  x_ = VectorXd::Zero(n_x_);
+  for (int i=0; i<2 * n_aug_ + 1; i++) x_ += weights_(i) * Xsig_pred_.col(i);
+
+  P_ = MatrixXd::Zero(n_x_, n_x_);
+  for (int i=0; i<2 * n_aug_ + 1; i++) {
+    VectorXd v = Xsig_pred_.col(i) - x_;
+    P_ += weights_(i) * v * v.transpose();
+  }
+  cout<<"x = "<<x_<<endl;
+  cout<<"P = "<<P_<<endl;
 }
 
 /**

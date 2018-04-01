@@ -3,3 +3,10 @@
 
 # build files
 build/
+
+# Eigen
+src/Eigen/
+
+# codeblocks
+*.cbp
+*.layout
