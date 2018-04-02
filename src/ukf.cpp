@@ -1,6 +1,8 @@
 #include "ukf.h"
 #include "Eigen/Dense"
 #include <iostream>
+#include <vector>
+#include <fstream>
 
 using namespace std;
 using Eigen::MatrixXd;
@@ -78,6 +80,17 @@ UKF::UKF() {
   double lambda_ = 3 - n_aug_;
 
   Xsig_pred_ = MatrixXd::Zero(n_x_, 2 * n_aug_ + 1);
+
+  vector <double> nis_laser_;
+  vector <double> nis_radar_;
+
+  ofstream outfile1("NIS_Laser.csv");
+  outfile1.close();
+
+  ofstream outfile2("NIS_Radar.csv");
+  outfile2.close();
+//  nis_laser_.clear();
+//  nis_radar_.clear();
 }
 
 UKF::~UKF() {}
@@ -249,6 +262,13 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
   x_ += K * (z - z_pred_meas_mean);
   P_ -= K * S * K.transpose();
 
+  nis_laser_.push_back((z - z_pred_meas_mean).transpose() * S.inverse() * (z - z_pred_meas_mean));
+
+  ofstream outfile_laser;
+  outfile_laser.open("NIS_Laser.csv", std::ios_base::app);
+  outfile_laser << nis_laser_.back() << ", "<<endl;
+  outfile_laser.close();
+
 //  cout<<"K = \n" <<K<<endl;
 //  cout<<"T = \n" <<T<<endl;
 //  cout<<"S = \n" <<S<<endl;
@@ -309,4 +329,10 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
   MatrixXd K = T * S.inverse();
   x_ += K * (z - z_pred_meas_mean);
   P_ -= K * S * K.transpose();
+  nis_radar_.push_back((z - z_pred_meas_mean).transpose() * S.inverse() * (z - z_pred_meas_mean));
+
+  ofstream outfile_radar;
+  outfile_radar.open("NIS_Radar.csv", std::ios_base::app);
+  outfile_radar << nis_radar_.back() << ", "<<endl;
+  outfile_radar.close();
 }
