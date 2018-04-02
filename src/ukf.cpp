@@ -238,14 +238,12 @@ void UKF::UpdateLidar(MeasurementPackage meas_package) {
   MatrixXd S = MatrixXd::Zero(2, 2);
   S << std_laspx_ * std_laspx_, 0,
        0, std_laspy_ * std_laspy_;
-  for (int i=0; i<2 * n_aug_ + 1; i++) {
+  for (int i=0; i<2 * n_aug_ + 1; i++)
     S += weights_(i) * (z_pred.col(i) - z_pred_meas_mean) * (z_pred.col(i) - z_pred_meas_mean).transpose();
-  }
 
   MatrixXd T = MatrixXd::Zero(n_x_, 2);
-  for (int i=0; i<2 * n_aug_ + 1; i++) {
+  for (int i=0; i<2 * n_aug_ + 1; i++)
     T += weights_(i) * (Xsig_pred_.col(i) - x_) * (z_pred.col(i) - z_pred_meas_mean).transpose();
-  }
 
   MatrixXd K = T * S.inverse();
   x_ += K * (z - z_pred_meas_mean);
